@@ -237,7 +237,7 @@ class PnPCog(commands.Cog):
     @commands.command()
     async def roll(self, ctx, *args):
         """Rolls a dice in NdN format."""
-        await self.bot.system.handle_roll(*self.bot.system.parse_roll_args(args))
+        await self.bot.system.handle_roll(ctx, *self.bot.system.parse_roll_args(args))
 
     @roll.error
     async def roll_error(self, ctx, error):
