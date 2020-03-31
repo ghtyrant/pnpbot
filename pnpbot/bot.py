@@ -12,18 +12,13 @@ from .systems.base import BaseSystem
 from .character import Character, CharStatParseException, CharStat
 
 
-description = """An example bot to showcase the discord.ext.commands extension
-module.
-
-There are a number of utility commands being showcased here."""
-
 _logger = logging.getLogger("pnpbot")
 
 
 class PnPBot(commands.Bot):
     def __init__(self, system: str, channel_id: int):
         super().__init__(
-            command_prefix="!", description=description,
+            command_prefix="!", description="",
         )
 
         self.system = load_system(system)
