@@ -1,0 +1,4 @@
+__pycache__/
+*.pickle
+.mypy_cache/
+.vscode/
