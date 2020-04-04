@@ -13,6 +13,12 @@ pre-commit = "^2.2.0"
 pre-commit-hooks = "^2.5.0"
 neovim = "^0.3.1"
 black = {version = "^19.10b0", allow-prereleases = true}
+pytest = "^5.4.1"
+pytest-cov = "^2.8.1"
+pytest-pythonpath = "^0.7.3"
+
+[tool.skjold]
+sources = ["pyup", "gemnasium"]  # Sources to check against.
 
 [build-system]
 requires = ["poetry>=0.12"]

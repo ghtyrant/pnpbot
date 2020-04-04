@@ -9,7 +9,17 @@ from discord.ext import commands
 from discord.ext.commands import Context, command
 
 from .systems.base import BaseSystem
-from .character import Character, CharStatParseException, CharStat
+from .character import (
+    Character,
+    AttributeParseException,
+    Attribute,
+    AnonymousAttributeException,
+    MissingAttributesException,
+    UnknownAttributeException,
+    NotSpendableException,
+    OverflowAttributeException,
+    UnderflowAttributeException,
+)
 
 
 _logger = logging.getLogger("pnpbot")
@@ -83,7 +93,6 @@ class PnPCog(commands.Cog):
     async def add(
         self, ctx: Context, player: str, character_name: str, *raw_attributes
     ):
-
         member = ctx.guild.get_member_named(player)
 
         if not member:
@@ -100,16 +109,26 @@ class PnPCog(commands.Cog):
             return
 
         try:
-            attributes = self.bot.system.parse_attributes(raw_attributes)
-        except CharStatParseException:
+            attributes = self.bot.system.parse_attributes(list(raw_attributes))
+        except (AnonymousAttributeException, AttributeParseException) as e:
+            error_stat = ""
+            if e.stat_name:
+                error_stat = f"Fehler im Attribut '{e.stat_name}'! "
+
             await ctx.send(
-                "Alle Attribute müssen im Format *wert*/*maximum* angegeben werden!"
+                f"{error_stat}Alle Attribute müssen im Format _name=wert/maximum_ (z.B. Stärke=5/12) angegeben werden!"
             )
+            return
+        except UnknownAttributeException as e:
+            await ctx.send(f"Unbekanntes Attribut '{e.stat_name}'!")
+            return
+        except MissingAttributesException as e:
+            await ctx.send(f"Folgende Attribute fehlen: {', '.join(e.missing)}!")
             return
 
         character = self.bot.add_character(member.id, character_name, attributes)
 
-        await ctx.send(f"Spieler '{player}' ({member.id}) hinzugefügt!")
+        await ctx.send(f"Charakter für '{player}' ({member.id}) hinzugefügt!")
 
         msg = f"Charakter '{character_name}' hinzugefügt!\n"
         msg += str(character)
@@ -129,38 +148,40 @@ class PnPCog(commands.Cog):
         self.bot.delete_character(member.id)
 
     @commands.command()
-    async def set(self, ctx: Context, player: str, stat_name: str, value: str):
+    async def set(self, ctx: Context, player: str, value: str):
         member = ctx.guild.get_member_named(player)
 
-        if not member or not self.bot.has_character(member.id):
+        if not member:
             await ctx.send(f"Spieler '{player}' nicht gefunden!")
             return
 
         character = self.bot.get_character(member.id)
-
         if not character:
+            await ctx.send(f"Spieler '{player}' hat keinen Charakter!")
             return
 
-        if not character.has_stat(stat_name):
+        try:
+            new_stat = Attribute.from_str(value)
+        except AttributeParseException:
             await ctx.send(
-                f"Der Charakter {character.name} hat kein Attribut namens '{stat_name}'!"
+                "Der Wert muss entweder eine Zahl oder im Format x/y (z.B. 5/8) sein."
             )
             return
 
-        stat = character[stat_name]
+        if not new_stat.name:
+            await ctx.send(
+                "Verwendung: !set *player* *attributname*=*wert* (z.B.: !set MyPlayer intelligenz=5, !set MyPlayer hp=3/12"
+            )
+            return
 
-        if "/" in value:
-            new_stat = CharStat.from_str(stat_name, value)
-            stat.update(new_stat)
-        else:
-            try:
-                new_stat = int(value)
-                stat.update(new_stat)
-            except ValueError:
-                await ctx.send(
-                    "Der Wert muss entweder eine Zahl oder im Format x/y (z.B. 5/8) sein."
-                )
-                return
+        if not character.has_attribute(new_stat.name):
+            await ctx.send(
+                f"Der Charakter {character.name} hat kein Attribut namens '{new_stat.name}'!"
+            )
+            return
+        stat = character.get_attribute(new_stat.name)
+
+        stat.update(new_stat)
 
         assert self.bot.play_channel is not None
         await self.bot.play_channel.send(
@@ -187,7 +208,7 @@ class PnPCog(commands.Cog):
         await ctx.send(str(character))
 
     @commands.command()
-    async def spend(self, ctx: Context, num: int, attribute: str):
+    async def spend(self, ctx: Context, amount: int, attribute_name: str):
         member = ctx.message.author
         character = self.bot.get_character(member.id)
 
@@ -195,23 +216,34 @@ class PnPCog(commands.Cog):
             await ctx.send(f"Spieler nicht gefunden!")
             return
 
-        stat = character[attribute]
+        attribute = character.get_attribute(attribute_name)
 
-        if stat.value < num:
-            await ctx.send(f"Du hast nur noch {stat.value} {attribute.capitalize()}!")
+        if not attribute:
+            await ctx.send(
+                f"Der Charakter {character.name} hat kein Attribut namens '{attribute_name}'!"
+            )
             return
 
-        stat.value -= num
-        character[attribute] = stat.value
+        try:
+            attribute.spend(amount)
+        except NotSpendableException:
+            await ctx.send(f"Das Attribut {attribute.name} kann man nicht ausgeben!")
+            return
+        except UnderflowAttributeException as e:
+            await ctx.send(
+                f"Du hast nur noch {e.current} {attribute.name} und kannst nicht unter {e.minium} sein!"
+            )
+            return
+
         self.bot.save_stats()
         await (
             ctx.send(
-                f":bust_in_silhouette: {character.name} :clipboard: :arrow_lower_right: **{stat} {attribute.capitalize()}**"
+                f":bust_in_silhouette: {character.name} :clipboard: :arrow_lower_right: **{attribute} {attribute.name}**"
             )
         )
 
     @commands.command()
-    async def gain(self, ctx: Context, num: int, attribute: str):
+    async def gain(self, ctx: Context, amount: int, attribute_name: str):
         member = ctx.message.author
         character = self.bot.get_character(member.id)
 
@@ -219,29 +251,42 @@ class PnPCog(commands.Cog):
             await ctx.send(f"Spieler nicht gefunden!")
             return
 
-        stat = character[attribute]
+        attribute = character.get_attribute(attribute_name)
 
-        if stat.value + num > stat.maximum:
-            stat.value = stat.maximum
-        else:
-            stat.value += num
+        if not attribute:
+            await ctx.send(
+                f"Der Charakter {character.name} hat kein Attribut namens '{attribute_name}'!"
+            )
+            return
 
-        character[attribute] = stat.value
+        try:
+            attribute.gain(amount)
+        except NotSpendableException:
+            await ctx.send(f"Das Attribut {attribute.name} kann man nicht ausgeben!")
+            return
+        except OverflowAttributeException as e:
+            # For convenience, we simply set the attribute to its maximum instead of demanding a user action
+            attribute.update(e.maximum)
+
         self.bot.save_stats()
         await (
             ctx.send(
-                f":bust_in_silhouette: {character.name} :clipboard: :arrow_upper_right: **{stat} {attribute.capitalize()}**"
+                f":bust_in_silhouette: {character.name} :clipboard: :arrow_upper_right: **{attribute} {attribute.name}**"
             )
         )
 
     @commands.command()
     async def roll(self, ctx, *args):
         """Rolls a dice in NdN format."""
-        await self.bot.system.handle_roll(ctx, *self.bot.system.parse_roll_args(args))
+        member = ctx.message.author
+        character = self.bot.get_character(member.id)
+
+        await self.bot.system.handle_roll(
+            ctx, character, **self.bot.system.parse_roll_args(args)
+        )
 
     @roll.error
     async def roll_error(self, ctx, error):
-        print(error)
         await ctx.send(self.bot.system.RollHelp)
 
 

@@ -1,16 +1,24 @@
 import random
-from typing import List, Tuple, Any
+from typing import List, Tuple, Any, Optional
 from discord.ext.commands import Context
 from .base import BaseSystem, Dice
+from pnpbot.character import Attribute, Character
 
 
 class System(BaseSystem):
     Name = "HexDec"
-    Attributes = ["Vita", "AP", "Körper", "Geist", "Sozial"]
-    RollArgs = [Dice, int]
+    Attributes = [
+        Attribute(name="Vita", limited=True, spendable=True),
+        Attribute(name="AP", limited=True, spendable=True),
+        Attribute(name="Körper", limited=True, spendable=True),
+        Attribute(name="Geist", limited=True, spendable=True),
+        Attribute(name="Sozial", limited=True, spendable=True),
+    ]
     RollHelp = "Verwendung: !roll XdY Basis (z.B. `!roll 3d20 15`)"
 
-    async def handle_roll(self, ctx: Context, dice: Dice, base: int):
+    async def handle_roll(
+        self, ctx: Context, character: Optional[Character], dice: Dice, base: int
+    ):
         if dice.number <= 0 or dice.sides <= 0:
             await ctx.send("Verwendung: !roll XdY Basis (e.g. `!roll 3d20 15`")
             return
