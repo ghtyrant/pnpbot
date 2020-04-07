@@ -44,12 +44,13 @@ class NotSpendableException(Exception):
 class Attribute:
     def __init__(
         self,
+        *,
+        name: str = "",
         value: int = 0,
         minimum: int = 0,
         maximum: int = 0,
         limited: bool = False,
         spendable: bool = False,
-        name: str = "",
     ):
         self.name = name
         self.value = value
@@ -57,6 +58,12 @@ class Attribute:
         self.maximum = maximum
         self.limited = limited
         self.spendable = spendable
+
+        if self.limited:
+            if self.value < self.minimum:
+                raise UnderflowAttributeException(self.value, self.value, self.minimum)
+            elif self.value > self.maximum:
+                raise OverflowAttributeException(self.value, self.value, self.maximum)
 
     @staticmethod
     def from_str(text: str) -> "Attribute":
@@ -126,6 +133,12 @@ class Attribute:
 
     def update(self, value: Union[int, "Attribute"]):
         if isinstance(value, int):
+            if self.limited:
+                if value > self.maximum:
+                    raise OverflowAttributeException(self.value, value, self.maximum)
+                elif value < self.minimum:
+                    raise UnderflowAttributeException(self.value, value, self.minimum)
+
             self.value = value
         elif isinstance(value, Attribute):
             self.value = value.value

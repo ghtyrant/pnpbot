@@ -1,3 +1,7 @@
 .PHONY: tests
 tests:
-	pytest -x --cov=pnpbot -s tests
+	pytest -x tests
+
+.PHONY: coverage
+coverage:
+	pytest -x --cov=pnpbot --cov-report html tests
